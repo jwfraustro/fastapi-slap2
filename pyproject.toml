@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["fastapi_slap2"]
+
+[project]
+name = "fastapi-slap2"
+version = "0.1.0"
+authors = [
+    {name = "Joshua Fraustro", email="joshua.fraustro@gmail.com"},
+]
+description = "FastAPI implementation of the IVOA SLAP2 protocol"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi==0.103",
+    "pydantic<2.6",
+    "fastapi_restful<=0.5.0",
+    "pydantic-settings",
+    "typing_inspect",
+    "uvicorn",
+]
+
+classifiers = [
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
+]
+keywords = [
+    "ivoa",
+    "fastapi",
+    "slap2",
+    "astronomy",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov"]
+dev = ["pylint", "ruff", "pre-commit"]
+docs = ["sphinx", "sphinx_design", "furo", "sphinx-copybutton", "toml", "sphinx_autodoc_typehints"]
+
+[project.urls]
+Homepage = "https://github.com/Joshua Fraustro/fastapi-slap2"
+Issues = "https://github.com/Joshua Fraustro/fastapi-slap2/issues"
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["docs/conf.py"]

@@ -1,0 +1,24 @@
+{
+  "template": "/Users/jfraustro/repos/fastapi-template",
+  "commit": "1738a45dc8ea4867c36ec64ec64da859410628a8",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "project_name": "FastAPI SLAP2",
+      "project_slug": "fastapi-slap2",
+      "package_name": "fastapi_slap2",
+      "protocol_name": "SLAP2",
+      "protocol_slug": "slap2",
+      "ivoa_standard_id": "ivo://ivoa.net/std/SLAP2#query-1",
+      "description": "FastAPI implementation of the IVOA SLAP2 protocol",
+      "author_name": "Joshua Fraustro",
+      "author_email": "joshua.fraustro@gmail.com",
+      "python_version": "3.11",
+      "port": "8000",
+      "version": "0.1.0",
+      "_template": "/Users/jfraustro/repos/fastapi-template",
+      "_commit": "1738a45dc8ea4867c36ec64ec64da859410628a8"
+    }
+  },
+  "directory": null
+}
