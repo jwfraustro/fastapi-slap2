@@ -1,112 +1,148 @@
-"""Schemas for the SLAP2 API."""
+"""Schemas and protocol metadata for the SLAP2 API."""
 
+import math
+from dataclasses import dataclass
 from enum import StrEnum
 
-from enum import StrEnum
-from typing import List, Literal, Optional, Union
+from fastapi_slap2.exceptions import ParameterError
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+LINES_STANDARD_ID = "ivo://ivoa.net/std/SLAP#lines-2.0"
+SPECIES_STANDARD_ID = "ivo://ivoa.net/std/SLAP#species-2.0"
 
-class SIASearchParams(BaseModel):
-    """Query parameters for the SIA API."""
 
 class ResponseFormat(StrEnum):
-    """Supported response formats."""
+    """Supported RESPONSEFORMAT values (SLAP2 .1.10)."""
 
-    VOTABLE = "votable"
+    VOTABLE = "application/x-votable+xml"
+    TEXT_XML = "text/xml"
+    VOTABLE_SHORT = "votable"  # DALI short form for application/x-votable+xml
 
-from typing import Annotated, Literal
 
-from fastapi import FastAPI, Query
-from pydantic import BaseModel, Field
+# Column metadata for the {lines} resource (SLAP2 .3).
+# Keys: name, datatype, and optionally arraysize, ucd, unit.
+LINES_METADATA: list[dict] = [
+    {"name": "vacuum_wavelength", "datatype": "double", "unit": "m", "ucd": "em.wl"},
+    {"name": "vacuum_wavelength_error", "datatype": "double", "unit": "m", "ucd": "stat.error;em.wl"},
+    {"name": "line_title", "datatype": "char", "arraysize": "*", "ucd": "meta.title"},
+    {"name": "species_name", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "species_mass", "datatype": "float", "unit": "u", "ucd": "phys.mass"},
+    {"name": "inchikey", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "inchi", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "ion_charge", "datatype": "int", "ucd": "phys.atmol.element;phys.atmol.ionization"},
+    {"name": "lower_level_description", "datatype": "char", "arraysize": "*", "ucd": "meta.title;phys.atmol.level"},
+    {"name": "upper_level_description", "datatype": "char", "arraysize": "*", "ucd": "meta.title;phys.atmol.level"},
+    {"name": "einsteina", "datatype": "double", "unit": "s**-1", "ucd": "phys.atmol.transProb"},
+    {"name": "lower_level_energy", "datatype": "double", "unit": "J", "ucd": "phys.energy;phys.atmol.level"},
+    {"name": "upper_level_energy", "datatype": "double", "unit": "J", "ucd": "phys.energy;phys.atmol.level"},
+    {"name": "reference_doi", "datatype": "char", "arraysize": "*", "ucd": "meta.ref.doi"},
+    {"name": "reference_uri", "datatype": "char", "arraysize": "*", "ucd": "meta.ref.uri"},
+]
 
-FloatOrInf = Union[float, Literal["Inf", "-Inf"]]
-IntOrInf = Union[int, Literal["Inf", "-Inf"]]
+# Column metadata for the {species} resource (SLAP2 6.3).
+SPECIES_METADATA: list[dict] = [
+    {"name": "species_name", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "ion_charge", "datatype": "int", "ucd": "phys.atmol.element;phys.atmol.ionization"},
+    {"name": "inchikey", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "inchi", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "stoichiometric_formula", "datatype": "char", "arraysize": "*", "ucd": "phys.atmol.element"},
+    {"name": "species_type", "datatype": "char", "arraysize": "*"},
+    {"name": "number_of_atoms", "datatype": "int"},
+]
 
-class MinMaxFloatRange(BaseModel):
-    min: FloatOrInf
-    max: FloatOrInf
+# {lines} query parameters -> whether they may be repeated (SLAP2 Appendix, /lines endpoint parameters).
+LINES_PARAMETERS: dict[str, bool] = {
+    "WAVELENGTH": False,
+    "SPECIES": True,
+    "INCHIKEY": True,
+    "SPECIES_MASS": False,
+    "ION_CHARGE": False,
+    "LOWER_LEVEL_ENERGY": False,
+    "UPPER_LEVEL_ENERGY": False,
+    "EINSTEINA": False,
+    "MAXREC": False,
+    "RESPONSEFORMAT": False,
+}
+
+_POS_INF = ("+Inf", "Inf")  # a bare "+" in a URL decodes to a space, so also accept "Inf"
+_NEG_INF = ("-Inf",)
+
+
+@dataclass(frozen=True)
+class Interval:
+    """A closed numeric interval as defined by DALI (``min max``, or a single value)."""
+
+    lower: float
+    upper: float
+
+    def contains(self, value) -> bool:
+        return value is not None and self.lower <= value <= self.upper
 
     @classmethod
-    def from_string(cls, s: str):
-        tokens = s.strip().split()
-        if len(tokens) != 2:
-            raise ValueError(f"Expected two values, got: {s}")
-        min_val = cls._parse_token(tokens[0])
-        max_val = cls._parse_token(tokens[1])
-        return cls(min=min_val, max=max_val)
+    def parse(cls, param: str, raw: str, integer: bool = False) -> "Interval":
+        tokens = raw.split()
+        if len(tokens) not in (1, 2):
+            raise ParameterError(f"{param} must be a single value or a 'min max' interval, got '{raw}'")
+
+        bounds = [cls._parse_bound(param, token, integer) for token in tokens]
+        lower, upper = bounds[0], bounds[-1]
+
+        if len(tokens) == 1 and math.isinf(lower):
+            raise ParameterError(f"{param} single value must be finite, got '{raw}'")
+        if lower > upper:
+            raise ParameterError(f"{param} lower bound is greater than upper bound: '{raw}'")
+        return cls(lower, upper)
 
     @staticmethod
-    def _parse_token(token: str) -> FloatOrInf:
-        if token in ("Inf", "-Inf"):
-            return token
+    def _parse_bound(param: str, token: str, integer: bool) -> float:
+        if token in _POS_INF:
+            return math.inf
+        if token in _NEG_INF:
+            return -math.inf
         try:
-            return float(token)
+            value = int(token) if integer else float(token)
         except ValueError:
-            raise ValueError(f"Invalid float or Inf value: {token}")
+            kind = "an integer" if integer else "a number"
+            raise ParameterError(f"{param} bound '{token}' is not {kind} or -Inf/+Inf") from None
+        if not math.isfinite(value):  # rejects 'nan', 'inf', 'infinity' spellings
+            raise ParameterError(f"{param} bound '{token}' is not a number or -Inf/+Inf")
+        return value
 
-class MinMaxIntRange(BaseModel):
-    min: IntOrInf
-    max: IntOrInf
+
+@dataclass
+class LinesQuery:
+    """Parsed and validated {lines} query."""
+
+    wavelength: Interval | None = None
+    species: list[str] | None = None
+    inchikey: list[str] | None = None
+    species_mass: Interval | None = None
+    ion_charge: Interval | None = None
+    lower_level_energy: Interval | None = None
+    upper_level_energy: Interval | None = None
+    einsteina: Interval | None = None
 
     @classmethod
-    def from_string(cls, s: str):
-        tokens = s.strip().split()
-        if len(tokens) != 2:
-            raise ValueError(f"Expected two values, got: {s}")
-        min_val = cls._parse_token(tokens[0])
-        max_val = cls._parse_token(tokens[1])
-        return cls(min=min_val, max=max_val)
+    def from_params(
+        cls,
+        wavelength: str | None,
+        species: list[str] | None,
+        inchikey: list[str] | None,
+        species_mass: str | None,
+        ion_charge: str | None,
+        lower_level_energy: str | None,
+        upper_level_energy: str | None,
+        einsteina: str | None,
+    ) -> "LinesQuery":
+        def interval(param, raw, integer=False):
+            return Interval.parse(param, raw, integer) if raw is not None else None
 
-    @staticmethod
-    def _parse_token(token: str) -> IntOrInf:
-        if token in ("Inf", "-Inf"):
-            return token
-        try:
-            return int(token)
-        except ValueError:
-            raise ValueError(f"Invalid int or Inf value: {token}")
-
-class LineQueryParams(BaseModel):
-    """Query parameters for the Line API endpoint."""
-
-    wavelength: Optional[MinMaxFloatRange] = Field(
-        None,
-        description="Wavelength range to query, in meters. Format: 'min max'.",
-        example="5.1E-6 5.6E-6",
-    )
-    species: Optional[List[str]] = Field(
-        None,
-        description="Species to query for, e.g., 'H2O'.",
-        example="H2O",
-    )
-    species_mass: Optional[MinMaxFloatRange] = Field(
-        None,
-        description="Mass range of the species to query for, in atomic mass units (u). Format: 'min max'.",
-        example="0 12.011",
-    )
-    inchikey: Optional[List[str]] = Field(
-        None,
-        description="InChIKey of the species to query for.",
-        example="XLYOFNOQVPJJNP-UHFFFAOYSA-N",
-    )
-    ion_charge: Optional[MinMaxIntRange] = Field(
-        None,
-        description="Charge state of the ion to query for, e.g., '0' for neutral, '1' for singly ionized.",
-        example="1 +Inf",
-    )
-    lower_level_energy: Optional[MinMaxFloatRange] = Field(
-        None,
-        description="Energy range of the lower level to query for, in Joules. Format: 'min max'.",
-        example="3.93E-18 3.94E-18",
-    )
-    upper_level_energy: Optional[MinMaxFloatRange] = Field(
-        None,
-        description="Energy range of the upper level to query for, in Joules. Format: 'min max'.",
-        example="3.95E-18 3.96E-18",
-    )
-    einsteina: Optional[MinMaxFloatRange] = Field(
-        None,
-        description="Einstein A coefficient range to query for, in s^-1. Format: 'min max'.",
-        example="1E-5 1E-3",
-    )
+        return cls(
+            wavelength=interval("WAVELENGTH", wavelength),
+            species=species or None,
+            inchikey=inchikey or None,
+            species_mass=interval("SPECIES_MASS", species_mass),
+            ion_charge=interval("ION_CHARGE", ion_charge, integer=True),
+            lower_level_energy=interval("LOWER_LEVEL_ENERGY", lower_level_energy),
+            upper_level_energy=interval("UPPER_LEVEL_ENERGY", upper_level_energy),
+            einsteina=interval("EINSTEINA", einsteina),
+        )
