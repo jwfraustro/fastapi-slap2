@@ -24,12 +24,6 @@ def check_parameter_names(request: Request, allowed: dict[str, bool]) -> None:
         seen.add(name)
 
 
-def response_media_type(responseformat: schemas.ResponseFormat | None) -> str:
-    if responseformat == schemas.ResponseFormat.TEXT_XML:
-        return "text/xml"
-    return "application/x-votable+xml"
-
-
 @cbv(slap2_router)
 class SLAP2Router:
     """Router for SLAP2 API endpoints."""

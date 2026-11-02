@@ -13,9 +13,7 @@ SPECIES_STANDARD_ID = "ivo://ivoa.net/std/SLAP#species-2.0"
 class ResponseFormat(StrEnum):
     """Supported RESPONSEFORMAT values (SLAP2 .1.10)."""
 
-    VOTABLE = "application/x-votable+xml"
-    TEXT_XML = "text/xml"
-    VOTABLE_SHORT = "votable"  # DALI short form for application/x-votable+xml
+    VOTABLE = "text/xml"
 
 
 # Column metadata for the {lines} resource (SLAP2 .3).
