@@ -137,6 +137,6 @@ class SLAP2Router:
         return perform_lines_query(
             query=query,
             maxrec=maxrec,
-            media_type=response_media_type(responseformat),
+            media_type="text/xml",
             request_url=str(request.url),
         )
