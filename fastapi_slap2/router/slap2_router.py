@@ -140,11 +140,6 @@ class SLAP2Router:
             einsteina=einsteina,
         )
 
-        # WAVELENGTH is mandatory, except for a MAXREC=0 metadata request, which
-        # validators commonly send without any constraints.
-        if query.wavelength is None and maxrec != 0:
-            raise ParameterError("Parameter WAVELENGTH is mandatory")
-
         return perform_lines_query(
             query=query,
             maxrec=maxrec,
