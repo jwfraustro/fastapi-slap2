@@ -16,7 +16,14 @@ from astropy.io.votable.tree import Field, Info, Resource, TableElement, VOTable
 from fastapi_slap2.config.settings import get_settings
 from fastapi_slap2.exceptions import ParameterError
 from fastapi_slap2.responses import XMLResponse
-from fastapi_slap2.schemas import LINES_METADATA, LINES_STANDARD_ID, LinesQuery
+from fastapi_slap2.schemas import (
+    LINES_METADATA,
+    LINES_STANDARD_ID,
+    SPECIES_METADATA,
+    SPECIES_STANDARD_ID,
+    LinesQuery,
+    SpeciesQuery,
+)
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -34,8 +41,16 @@ def load_table(filename: str, metadata: tuple[tuple[str, str], ...]) -> list[dic
     return rows
 
 
+def _datatypes(metadata: list[dict]) -> tuple[tuple[str, str], ...]:
+    return tuple((m["name"], m["datatype"]) for m in metadata)
+
+
 def lines_table() -> list[dict]:
-    return load_table("lines.csv", tuple((m["name"], m["datatype"]) for m in LINES_METADATA))
+    return load_table("lines.csv", _datatypes(LINES_METADATA))
+
+
+def species_table() -> list[dict]:
+    return load_table("species.csv", _datatypes(SPECIES_METADATA))
 
 
 def build_votable(rows: list[dict], metadata: list[dict], status: str, infos: list[tuple[str, str]]) -> bytes:
@@ -89,7 +104,7 @@ def data_origin_infos(request_url: str, standard_id: str) -> list[tuple[str, str
     ]
 
 
-# Interval / list parameters and the column they constrain.
+# Query attribute -> (parameter name, column it constrains).
 _LINES_FILTER_COLUMNS = {
     "wavelength": ("WAVELENGTH", "vacuum_wavelength"),
     "species": ("SPECIES", "species_name"),
@@ -101,37 +116,85 @@ _LINES_FILTER_COLUMNS = {
     "einsteina": ("EINSTEINA", "einsteina"),
 }
 
+_SPECIES_FILTER_COLUMNS = {
+    "species_type": ("SPECIES_TYPE", "species_type"),
+    "inchikey": ("INCHIKEY", "inchikey"),
+    "inchi": ("INCHI", "inchi"),
+    "species": ("SPECIES", "species_name"),
+    "stoichiometric_formula": ("STOICHIOMETRIC_FORMULA", "stoichiometric_formula"),
+    "number_of_atoms": ("NUMBER_OF_ATOMS", "number_of_atoms"),
+}
 
-def filter_lines(rows: list[dict], query: LinesQuery) -> list[dict]:
+
+def _matches(constraint, value) -> bool:
+    """Test one value against a constraint.
+
+    A list is a repeated parameter (OR across its items); a plain string is an
+    exact, case-sensitive match; Interval and Pattern objects match themselves.
+    """
+    if isinstance(constraint, list):
+        return any(_matches(item, value) for item in constraint)
+    if isinstance(constraint, str):  # also covers StrEnum values such as SpeciesType
+        return value == constraint
+    return constraint.matches(value)
+
+
+def filter_rows(rows: list[dict], query, columns: dict[str, tuple[str, str]]) -> list[dict]:
     """Apply the query constraints: AND between parameters, OR within a repeated parameter."""
-    for attr, (param, column) in _LINES_FILTER_COLUMNS.items():
+    for attr, (param, column) in columns.items():
         constraint = getattr(query, attr)
         if constraint is None:
             continue
 
-        # SLAP2 5.1: a parameter whose column is absent or entirely NULL must raise an error.
+        # SLAP2 5.1 / 6.1: a parameter whose column is absent or entirely NULL must raise an error.
         if all(row.get(column) is None for row in rows):
             raise ParameterError(f"Parameter {param} is not supported by this service")
 
-        if isinstance(constraint, list):  # exact string match, OR across values
-            allowed = set(constraint)
-            rows = [row for row in rows if row[column] in allowed]
-        else:
-            rows = [row for row in rows if constraint.contains(row[column])]
+        rows = [row for row in rows if _matches(constraint, row[column])]
     return rows
+
+
+def perform_query(
+    table: list[dict],
+    query,
+    columns: dict[str, tuple[str, str]],
+    metadata: list[dict],
+    standard_id: str,
+    maxrec: int,
+    media_type: str,
+    request_url: str,
+) -> XMLResponse:
+    """Filter a table, apply MAXREC, and return the results VOTable."""
+    limit = min(maxrec, get_settings().MAX_RECORDS)
+
+    # Parameters are still validated for MAXREC=0, so an unsupported one errors either way.
+    matches = filter_rows(table, query, columns)
+    if maxrec == 0:
+        results, status = [], "OK"
+    else:
+        results = matches[:limit]
+        status = "OVERFLOW" if len(matches) > limit else "OK"
+
+    content = build_votable(results, metadata, status, data_origin_infos(request_url, standard_id))
+    return XMLResponse(content=content, media_type=media_type)
 
 
 def perform_lines_query(query: LinesQuery, maxrec: int, media_type: str, request_url: str) -> XMLResponse:
     """Run a {lines} query and return the VOTable response."""
-    settings = get_settings()
-    limit = min(maxrec, settings.MAX_RECORDS)
+    return perform_query(
+        lines_table(), query, _LINES_FILTER_COLUMNS, LINES_METADATA, LINES_STANDARD_ID, maxrec, media_type, request_url
+    )
 
-    if maxrec == 0:
-        results, status = [], "OK"
-    else:
-        matches = filter_lines(lines_table(), query)
-        results = matches[:limit]
-        status = "OVERFLOW" if len(matches) > limit else "OK"
 
-    content = build_votable(results, LINES_METADATA, status, data_origin_infos(request_url, LINES_STANDARD_ID))
-    return XMLResponse(content=content, media_type=media_type)
+def perform_species_query(query: SpeciesQuery, maxrec: int, media_type: str, request_url: str) -> XMLResponse:
+    """Run a {species} query and return the VOTable response."""
+    return perform_query(
+        species_table(),
+        query,
+        _SPECIES_FILTER_COLUMNS,
+        SPECIES_METADATA,
+        SPECIES_STANDARD_ID,
+        maxrec,
+        media_type,
+        request_url,
+    )

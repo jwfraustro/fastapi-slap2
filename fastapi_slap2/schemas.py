@@ -1,6 +1,7 @@
 """Schemas and protocol metadata for the SLAP2 API."""
 
 import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -14,6 +15,13 @@ class ResponseFormat(StrEnum):
     """Supported RESPONSEFORMAT values (SLAP2 .1.10)."""
 
     VOTABLE = "text/xml"
+
+
+class SpeciesType(StrEnum):
+    """Allowed SPECIES_TYPE values (SLAP2 {species} resource, SPECIES_TYPE)."""
+
+    ATOM = "atom"
+    MOLECULE = "molecule"
 
 
 # Column metadata for the {lines} resource (SLAP2 .3).
@@ -61,6 +69,18 @@ LINES_PARAMETERS: dict[str, bool] = {
     "RESPONSEFORMAT": False,
 }
 
+# {species} query parameters -> whether they may be repeated (SLAP2 Appendix, /species endpoint parameters).
+SPECIES_PARAMETERS: dict[str, bool] = {
+    "SPECIES_TYPE": False,
+    "INCHIKEY": True,
+    "INCHI": True,
+    "SPECIES": True,
+    "STOICHIOMETRIC_FORMULA": True,
+    "NUMBER_OF_ATOMS": False,
+    "MAXREC": False,
+    "RESPONSEFORMAT": False,
+}
+
 _POS_INF = ("+Inf", "Inf")  # a bare "+" in a URL decodes to a space, so also accept "Inf"
 _NEG_INF = ("-Inf",)
 
@@ -72,7 +92,7 @@ class Interval:
     lower: float
     upper: float
 
-    def contains(self, value) -> bool:
+    def matches(self, value) -> bool:
         return value is not None and self.lower <= value <= self.upper
 
     @classmethod
@@ -104,6 +124,44 @@ class Interval:
         if not math.isfinite(value):  # rejects 'nan', 'inf', 'infinity' spellings
             raise ParameterError(f"{param} bound '{token}' is not a number or -Inf/+Inf")
         return value
+
+
+@dataclass(frozen=True)
+class Pattern:
+    """A case-sensitive shell-wildcard pattern (SLAP2 "Pattern matching").
+
+    ``*`` matches any sequence of characters (including none) and ``?`` matches any
+    single character; every other character matches itself. Unlike ``fnmatch``,
+    ``[...]`` is not special.
+    """
+
+    raw: str
+    regex: re.Pattern
+
+    @classmethod
+    def compile(cls, raw: str) -> "Pattern":
+        body = "".join(".*" if c == "*" else "." if c == "?" else re.escape(c) for c in raw)
+        return cls(raw, re.compile(body, re.DOTALL))
+
+    def matches(self, value) -> bool:
+        return value is not None and self.regex.fullmatch(value) is not None
+
+
+@dataclass(frozen=True)
+class InchiPattern(Pattern):
+    """A Pattern for InChI values, tolerant of the ``InChI=`` prefix.
+
+    The spec's own examples omit the prefix (``INCHI=1S/H2/h1H``) while the
+    ``inchi`` column carries it (``InChI=1S/H2/h1H``), so a value matches if
+    either its full form or its prefix-less form matches the pattern.
+    """
+
+    PREFIX = "InChI="
+
+    def matches(self, value) -> bool:
+        if value is None:
+            return False
+        return super().matches(value) or (value.startswith(self.PREFIX) and super().matches(value[len(self.PREFIX) :]))
 
 
 @dataclass
@@ -143,4 +201,42 @@ class LinesQuery:
             lower_level_energy=interval("LOWER_LEVEL_ENERGY", lower_level_energy),
             upper_level_energy=interval("UPPER_LEVEL_ENERGY", upper_level_energy),
             einsteina=interval("EINSTEINA", einsteina),
+        )
+
+
+@dataclass
+class SpeciesQuery:
+    """Parsed and validated {species} query."""
+
+    species_type: SpeciesType | None = None
+    inchikey: list[str] | None = None
+    inchi: list[InchiPattern] | None = None
+    species: list[Pattern] | None = None
+    stoichiometric_formula: list[Pattern] | None = None
+    number_of_atoms: Interval | None = None
+
+    @classmethod
+    def from_params(
+        cls,
+        species_type: SpeciesType | None,
+        inchikey: list[str] | None,
+        inchi: list[str] | None,
+        species: list[str] | None,
+        stoichiometric_formula: list[str] | None,
+        number_of_atoms: str | None,
+    ) -> "SpeciesQuery":
+        def patterns(raws, kind=Pattern):
+            return [kind.compile(r) for r in raws] if raws else None
+
+        return cls(
+            species_type=species_type,
+            inchikey=inchikey or None,
+            inchi=patterns(inchi, InchiPattern),
+            species=patterns(species),
+            stoichiometric_formula=patterns(stoichiometric_formula),
+            number_of_atoms=(
+                Interval.parse("NUMBER_OF_ATOMS", number_of_atoms, integer=True)
+                if number_of_atoms is not None
+                else None
+            ),
         )
