@@ -123,6 +123,9 @@ class SLAP2Router:
         if maxrec is None:
             maxrec = get_settings().DEFAULT_MAXREC
 
+        if wavelength is None:
+            raise ParameterError("Parameter WAVELENGTH is required")
+
         query = schemas.LinesQuery.from_params(
             wavelength=wavelength,
             species=species,
