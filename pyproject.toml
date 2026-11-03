@@ -13,7 +13,7 @@ authors = [
 ]
 description = "FastAPI implementation of the IVOA SLAP2 protocol"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 
 dependencies = [
     "fastapi==0.103",
@@ -38,13 +38,14 @@ keywords = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov"]
+# fastapi 0.103 / starlette 0.27 TestClient is incompatible with httpx>=0.28
+test = ["pytest", "pytest-cov", "httpx<0.28"]
 dev = ["pylint", "ruff", "pre-commit"]
 docs = ["sphinx", "sphinx_design", "furo", "sphinx-copybutton", "toml", "sphinx_autodoc_typehints"]
 
 [project.urls]
-Homepage = "https://github.com/Joshua Fraustro/fastapi-slap2"
-Issues = "https://github.com/Joshua Fraustro/fastapi-slap2/issues"
+Homepage = "https://github.com/jwfraustro/fastapi-slap2"
+Issues = "https://github.com/jwfraustro/fastapi-slap2/issues"
 
 [tool.ruff]
 line-length = 120

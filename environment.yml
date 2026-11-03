@@ -1,10 +1,6 @@
 name: "fastapi-slap2"
 channels:
-  - defaults
   - conda-forge
 dependencies:
-  - python>=3.11,<3.13
-  - pip<25.1
-  - wheel
-  - pip:
-      - pip-tools
+  - python=3.12
+  - pip

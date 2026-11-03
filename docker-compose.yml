@@ -1,11 +1,8 @@
-version: '3.8'
-
 services:
   fastapi_slap2_api:
     build: .
-    environment:
-      - PORT=8000
-    command: bash -c 'uvicorn fastapi_slap2.main:app --host 0.0.0.0 --port ${PORT}'
+    # The container always listens on 8000; set PORT to change the host port.
+    command: uvicorn fastapi_slap2.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
     ports:

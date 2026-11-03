@@ -13,30 +13,47 @@ Interactive Swagger documentation is available at `http://localhost:8000/docs`.
 
 ### Requirements
 
-- Python 3.11+
+- Python 3.12
 - [Docker Compose](https://docs.docker.com/compose/) (optional)
 - [Conda](https://docs.conda.io/) (optional)
 
 ### Running with Docker Compose
 
 ```bash
-docker-compose up
+docker compose up
 ```
+
+Set `PORT` to serve on a different host port, e.g. `PORT=8080 docker compose up`.
 
 ### Running with Conda
 
 ```bash
 conda env create -f environment.yml
 conda activate fastapi-slap2
-pip install -e .
+pip install -r requirements.txt
+pip install --no-deps -e .
 uvicorn fastapi_slap2.main:app --reload
 ```
 
 ### Running with pip
 
 ```bash
-pip install -e .
+pip install -r requirements.txt
+pip install --no-deps -e .
 uvicorn fastapi_slap2.main:app --reload
+```
+
+`requirements.txt` is a hash-locked set of dependencies generated from `pyproject.toml`; regenerate it with
+
+```bash
+uv pip compile --python-version 3.12 --python-platform linux --generate-hashes pyproject.toml -o requirements.txt
+```
+
+### Running the tests
+
+```bash
+pip install -e '.[test]'
+pytest
 ```
 
 ## Implementation
