@@ -141,13 +141,16 @@ def _matches(constraint, value) -> bool:
 
 def filter_rows(rows: list[dict], query, columns: dict[str, tuple[str, str]]) -> list[dict]:
     """Apply the query constraints: AND between parameters, OR within a repeated parameter."""
+
     for attr, (param, column) in columns.items():
         constraint = getattr(query, attr)
         if constraint is None:
             continue
 
         # SLAP2 5.1 / 6.1: a parameter whose column is absent or entirely NULL must raise an error.
-        if all(row.get(column) is None for row in rows):
+        # It doesn't make sense to throw an error if there were no rows to begin with, or they were
+        # all filtered out.
+        if all(row.get(column) is None for row in rows) and len(rows) > 0:
             raise ParameterError(f"Parameter {param} is not supported by this service")
 
         rows = [row for row in rows if _matches(constraint, row[column])]
