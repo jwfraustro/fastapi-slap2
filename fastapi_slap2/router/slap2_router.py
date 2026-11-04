@@ -33,6 +33,11 @@ class SLAP2Router:
         summary="Perform a SLAP2 lines query.",
         responses={200: {"content": {"application/x-votable+xml": {}}}},
     )
+    @slap2_router.post(
+        "/lines",
+        summary="Perform a SLAP2 lines query.",
+        responses={200: {"content": {"application/x-votable+xml": {}}}},
+    )
     def lines_query(
         self,
         request: Request,
@@ -145,6 +150,11 @@ class SLAP2Router:
         )
 
     @slap2_router.get(
+        "/species",
+        summary="Perform a SLAP2 species query.",
+        responses={200: {"content": {"application/x-votable+xml": {}}}},
+    )
+    @slap2_router.post(
         "/species",
         summary="Perform a SLAP2 species query.",
         responses={200: {"content": {"application/x-votable+xml": {}}}},
